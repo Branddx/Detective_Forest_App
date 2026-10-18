@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vigía de Incendios Perú</title>
+<meta name="description" content="Mapa de focos de calor satelitales (NASA FIRMS) en el Perú con viento, temperatura, humedad, área estimada y recursos cercanos para brigadas y bomberos.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="barra">
+  <div class="marca">
+    <svg class="marca-icono" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/>
+      <circle cx="16" cy="16" r="5.5" fill="var(--lv3)"/>
+      <circle cx="16" cy="16" r="2.2" fill="var(--lv1)"/>
+      <circle cx="27" cy="9.5" r="2.4" fill="currentColor"/>
+    </svg>
+    <div>
+      <div class="marca-sup">Perú · focos de calor satelitales</div>
+      <h1>Vigía de Incendios</h1>
+    </div>
+  </div>
+
+  <div class="controles-barra">
+    <div class="segmentado" role="radiogroup" aria-label="Periodo">
+      <button type="button" role="radio" data-rango="24h" aria-checked="true">24 h</button>
+      <button type="button" role="radio" data-rango="48h" aria-checked="false">48 h</button>
+      <button type="button" role="radio" data-rango="7d" aria-checked="false">7 días</button>
+    </div>
+    <button type="button" class="boton" id="btn-actualizar" title="Volver a consultar las fuentes">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 10a6.5 6.5 0 1 1-1.9-4.6M16.5 3.5v3.6h-3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Actualizar</span>
+    </button>
+    <label class="interruptor" title="Actualizar cada 15 minutos">
+      <input type="checkbox" id="auto-actualizar">
+      <span>Auto 15 min</span>
+    </label>
+    <button type="button" class="boton boton-icono" id="btn-tema" title="Tema: sistema" aria-label="Cambiar tema">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"/></svg>
+    </button>
+  </div>
+  <div class="estado-datos" id="estado-datos" aria-live="polite">Conectando…</div>
+</header>
+
+<main class="disposicion">
+  <aside class="panel" id="panel">
+    <section class="indicadores" id="indicadores" aria-label="Resumen">
+      <div class="kpi"><span class="kpi-valor" id="k-focos">—</span><span class="kpi-etq">focos</span></div>
+      <div class="kpi"><span class="kpi-valor" id="k-incendios">—</span><span class="kpi-etq">incendios</span></div>
+      <div class="kpi kpi-activo"><span class="kpi-valor" id="k-activos">—</span><span class="kpi-etq">activos &lt;12 h</span></div>
+      <div class="kpi"><span class="kpi-valor" id="k-frp">—</span><span class="kpi-etq">FRP total MW</span></div>
+      <div class="kpi"><span class="kpi-valor" id="k-area">—</span><span class="kpi-etq">ha con calor</span></div>
+    </section>
+
+    <div id="avisos" class="avisos" hidden></div>
+
+    <nav class="pestanas" role="tablist">
+      <button type="button" role="tab" data-tab="lista" aria-selected="true">Incendios</button>
+      <button type="button" role="tab" data-tab="regiones" aria-selected="false">Regiones</button>
+      <button type="button" role="tab" data-tab="capas" aria-selected="false">Capas y filtros</button>
+      <button type="button" role="tab" data-tab="ayuda" aria-selected="false">Ayuda</button>
+    </nav>
+
+    <!-- LISTA -->
+    <section class="vista" data-vista="lista">
+      <div class="filtros">
+        <input type="search" id="f-buscar" placeholder="Buscar provincia o región" aria-label="Buscar">
+        <select id="f-dep" aria-label="Departamento"><option value="">Todo el Perú</option></select>
+        <select id="f-nivel" aria-label="Nivel mínimo">
+          <option value="1">Todos los niveles</option>
+          <option value="2">Moderado o más</option>
+          <option value="3">Alto o más</option>
+          <option value="4">Muy alto o más</option>
+        </select>
+        <select id="f-estado" aria-label="Estado">
+          <option value="todos">Cualquier momento</option>
+          <option value="activo">Activos (&lt;12 h)</option>
+          <option value="24">Últimas 24 h</option>
+        </select>
+        <select id="f-orden" aria-label="Ordenar por">
+          <option value="prioridad">Ordenar: prioridad</option>
+          <option value="reciente">Ordenar: más recientes</option>
+          <option value="frp">Ordenar: mayor FRP</option>
+          <option value="area">Ordenar: mayor área</option>
+        </select>
+      </div>
+      <p class="conteo" id="conteo-lista"></p>
+      <ol class="lista-incendios" id="lista-incendios"></ol>
+    </section>
+
+    <!-- DETALLE -->
+    <section class="vista detalle" data-vista="detalle" hidden>
+      <button type="button" class="volver" id="btn-volver">← Volver a la lista</button>
+      <div id="detalle"></div>
+    </section>
+
+    <!-- REGIONES -->
+    <section class="vista" data-vista="regiones" hidden>
+      <p class="nota">Focos y potencia radiativa (FRP) por departamento en el periodo elegido. Toca una fila para ver solo esa región.</p>
+      <div class="tabla-envoltura">
+        <table class="tabla-regiones" id="tabla-regiones">
+          <thead><tr><th>Departamento</th><th class="num">Focos</th><th class="num">Incendios</th><th class="num">Activos</th><th class="num">FRP MW</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CAPAS -->
+    <section class="vista" data-vista="capas" hidden>
+      <fieldset>
+        <legend>Mapa base</legend>
+        <div class="opciones" id="opciones-base">
+          <label><input type="radio" name="base" value="mapa" checked> Mapa</label>
+          <label><input type="radio" name="base" value="relieve"> Relieve</label>
+          <label><input type="radio" name="base" value="satelite"> Satélite (Esri)</label>
+          <label><input type="radio" name="base" value="nasa_color"> NASA color real (diario)</label>
+          <label><input type="radio" name="base" value="nasa_quemas"> NASA falso color: quemas</label>
+        </div>
+        <label class="campo">Fecha de imagen NASA
+          <input type="date" id="fecha-nasa">
+        </label>
+        <p class="nota">Las imágenes diarias de NASA GIBS muestran humo y cicatrices de quema. La del día en curso puede estar incompleta.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Capas</legend>
+        <div class="opciones">
+          <label><input type="checkbox" id="c-incendios" checked> Incendios agrupados</label>
+          <label><input type="checkbox" id="c-focos" checked> Focos individuales (huella del píxel al acercar)</label>
+          <label><input type="checkbox" id="c-viento" checked> Dirección del viento sobre cada incendio</label>
+          <label><input type="checkbox" id="c-prop" checked> Pronóstico de propagación del incendio seleccionado</label>
+          <label><input type="checkbox" id="c-aire" checked> Calidad del aire (INCA) y dirección del humo alrededor del incendio seleccionado</label>
+          <label><input type="checkbox" id="c-limites" checked> Límites departamentales</label>
+          <label><input type="checkbox" id="c-gibs"> Anomalías térmicas NASA GIBS</label>
+          <label><input type="checkbox" id="c-eonet"> Eventos NASA EONET</label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Satélites</legend>
+        <div class="opciones" id="opciones-fuentes"></div>
+        <label class="campo">Confianza mínima
+          <select id="f-confianza">
+            <option value="baja">Todas (incluye baja)</option>
+            <option value="nominal">Nominal o alta</option>
+            <option value="alta">Solo alta</option>
+          </select>
+        </label>
+        <label class="interruptor"><input type="checkbox" id="f-solo-peru" checked> <span>Solo focos dentro del Perú</span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Descargar datos</legend>
+        <div class="fila-botones">
+          <a class="boton" id="dl-csv" href="#">Incendios CSV</a>
+          <a class="boton" id="dl-geojson" href="#">Incendios GeoJSON</a>
+        </div>
+      </fieldset>
+    </section>
+
+    <!-- AYUDA -->
+    <section class="vista ayuda" data-vista="ayuda" hidden>
+      <h2>Emergencias en el Perú</h2>
+      <ul class="telefonos">
+        <li><span class="tel-num">116</span><span>Cuerpo General de Bomberos Voluntarios</span></li>
+        <li><span class="tel-num">115</span><span>Defensa Civil (INDECI)</span></li>
+        <li><span class="tel-num">105</span><span>Policía Nacional</span></li>
+        <li><span class="tel-num">106</span><span>SAMU, urgencias médicas</span></li>
+        <li><span class="tel-num">119</span><span>Mensajes de voz en emergencias</span></li>
+      </ul>
+      <p class="nota">Un foco de calor es una anomalía térmica vista desde el espacio, no un incendio confirmado. Muchas son quemas agrícolas. Confirma en campo y reporta a la autoridad forestal regional, SERFOR o el COER de tu región.</p>
+
+      <div id="contacto" class="contacto" hidden>
+        <h2>Contáctenos</h2>
+        <p class="nota" id="contacto-texto"></p>
+        <div class="contacto-enlaces" id="contacto-enlaces"></div>
+        <p class="nota">Este canal no atiende emergencias: ante un incendio llama al 116 o al 115.</p>
+      </div>
+
+      <h2>Cómo leer los datos</h2>
+      <dl class="glosario">
+        <dt>FRP (MW)</dt><dd>Potencia radiativa del fuego medida por el satélite. Es el mejor indicador de intensidad. El nivel del incendio usa la suma de FRP de sus focos.</dd>
+        <dt>Nivel</dt><dd id="glosario-niveles"></dd>
+        <dt>Área con calor (ha)</dt><dd>Superficie de los píxeles satelitales que contenían fuego, sin contar dos veces el mismo terreno. Sobrestima el área ardiendo: un píxel VIIRS cubre unas 14 ha y uno MODIS unas 100 ha.</dd>
+        <dt>Envolvente (ha)</dt><dd>Polígono que encierra todas las detecciones del incendio en el periodo. Aproxima la extensión del frente.</dd>
+        <dt>Estado</dt><dd>Activo: detección en las últimas 12 h. Reciente: 12–24 h. Anterior: más de 24 h.</dd>
+        <dt>Flecha de viento</dt><dd>Hacia dónde empuja el viento el fuego y el humo, opuesta a la procedencia del viento.</dd>
+        <dt>Pronóstico de propagación</dt><dd>Simulación con el modelo de Rothermel (el de BehavePlus y FARSITE) que combina viento y humedad hora a hora, pendiente del terreno y tipo de vegetación. Parte de los píxeles detectados y, si hay varias pasadas satelitales, se ajusta a la velocidad con que el fuego avanzó realmente.</dd>
+        <dt>Probabilidad de llegada</dt><dd>Porcentaje de escenarios simulados (con distinto viento, humedad y velocidad) en que el fuego alcanza ese lugar dentro del horizonte elegido. La línea de cada horizonte encierra lo que se quema en al menos la mitad de los escenarios.</dd>
+        <dt>Índice de Calidad del Aire (INCA)</dt><dd>Escala oficial del Perú (R. M. N.° 181-2016-MINAM): Buena 0–50 (verde), Moderada 51–100 (amarillo), Mala de 101 al umbral de cuidado (anaranjado) y Umbral de cuidado (rojo), cuando corresponde declarar estados de alerta. Se calcula por contaminante con promedios móviles (PM2.5, PM10 y SO₂ en 24 h; CO y O₃ en 8 h; NO₂ en 1 h); se muestra el peor. Aquí se calcula con el modelo CAMS, no con estaciones.</dd>
+        <dt>Índice de Angström</dt><dd>Combina temperatura y humedad: menor a 2,0 es muy favorable al fuego; mayor a 4,0, desfavorable.</dd>
+        <dt>Peligro meteorológico</dt><dd>Índice orientativo propio que suma Angström, viento, ráfagas y días sin lluvia. Para avisos oficiales consulta SENAMHI.</dd>
+      </dl>
+
+      <h2>Fuentes</h2>
+      <ul class="fuentes">
+        <li><a href="https://firms.modaps.eosdis.nasa.gov/" target="_blank" rel="noopener">NASA FIRMS</a>: focos VIIRS (NOAA-20, NOAA-21, Suomi NPP) y MODIS, casi en tiempo real.</li>
+        <li><a href="https://nasa-gibs.github.io/gibs-api-docs/" target="_blank" rel="noopener">NASA GIBS</a>: imágenes diarias y capa de anomalías térmicas.</li>
+        <li><a href="https://eonet.gsfc.nasa.gov/docs/v3" target="_blank" rel="noopener">NASA EONET</a>: eventos de incendio curados.</li>
+        <li><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>: viento, temperatura, humedad, lluvia y calidad del aire (CAMS).</li>
+        <li><a href="https://sinia.minam.gob.pe/sites/default/files/sinia/archivos/public/docs/rm-n-181-2016-minam.pdf" target="_blank" rel="noopener">MINAM, R. M. N.° 181-2016-MINAM</a>: Índice de Calidad del Aire (INCA), cuidados y recomendaciones. Mediciones de estaciones en <a href="https://sinia.minam.gob.pe/novedades/conoce-calidad-aire-tiempo-real-traves-infoaire-peru" target="_blank" rel="noopener">INFOAIRE Perú</a>.</li>
+        <li><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap</a> vía Overpass: bomberos, salud, poblados, agua y vías.</li>
+        <li><a href="https://livingatlas.arcgis.com/landcover/" target="_blank" rel="noopener">Esri Land Cover 10 m</a> (Sentinel-2, Impact Observatory, CC BY 4.0): vegetación para el modelo de propagación.</li>
+        <li><a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrain Tiles</a> (AWS Open Data, Mapzen): relieve y pendientes.</li>
+        <li><a href="https://appweb.serfor.gob.pe/FocosCalor/Default.aspx" target="_blank" rel="noopener">SERFOR</a>: alertas oficiales de focos de calor.</li>
+        <li><a href="https://www.senamhi.gob.pe/site/incendio/" target="_blank" rel="noopener">SENAMHI</a>: condiciones atmosféricas de incendios forestales.</li>
+        <li><a href="https://gwis.jrc.ec.europa.eu/" target="_blank" rel="noopener">GWIS (Copernicus)</a>: pronóstico de peligro de incendio a 10 días.</li>
+      </ul>
+    </section>
+  </aside>
+
+  <div class="mapa-envoltura">
+    <div id="mapa" aria-label="Mapa de incendios"></div>
+    <div class="cargando" id="cargando" hidden><span class="giro"></span><span id="cargando-texto">Descargando focos de NASA FIRMS…</span></div>
+    <div class="leyenda" id="leyenda" aria-label="Leyenda"></div>
+  </div>
+</main>
+
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+  <div class="modal-caja">
+    <h2 id="modal-titulo">Reporte del incendio</h2>
+    <p class="nota">Selecciona el texto y cópialo.</p>
+    <textarea id="modal-texto" rows="12" readonly></textarea>
+    <div class="fila-botones"><button type="button" class="boton" id="modal-cerrar">Cerrar</button></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
